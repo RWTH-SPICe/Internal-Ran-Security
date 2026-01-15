@@ -1,0 +1,296 @@
+services:
+  #Open5GS
+  mongodb:
+    image: open5gs-mongodb
+    container_name: mongodb-noenc
+    expose:
+      - 27017
+    networks:
+      core_net:
+        ipv4_address: 192.168.200.10
+        aliases:
+          - db
+          - db.localdomain
+    healthcheck:
+      test: /bin/bash -c "pgrep mongod"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  webui:
+    image: open5gs-webui
+    container_name: open5gs-webui-noenc
+    depends_on:
+      - mongodb
+    ports:
+      - "9999:9999"
+    environment:
+    - DB_URI=mongodb://db/open5gs
+    networks:
+      core_net:
+        ipv4_address: 192.168.200.5
+        aliases:
+          - webui
+          - webui.localdomain
+  
+  #5GCore containers: AMF, UPF seperately, only necessary services. CAREFUL: UDM, PCF and BSF might be necessary
+  amf:
+    container_name: open5gs-amf-noenc
+    image: open5gs
+    environment:
+      - NF=amf
+    expose:
+      - 38412/sctp # N2
+      - 7777/tcp
+    depends_on:
+      nrf:
+        condition: service_healthy
+    cap_add:
+      - NET_ADMIN
+    networks:
+      core_net:
+        ipv4_address: 192.168.200.20
+        aliases:
+          - amf
+          - amf.localdomain
+
+  upf:
+    container_name: open5gs-upf-noenc
+    image: open5gs
+    environment:
+      - NF=upf
+    expose:
+      - 2152/udp # N3, N4u (Sxu)
+      - 8805/udp # N4 (Sxb)
+    depends_on:
+      nrf:
+        condition: service_healthy
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW    # for ping
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    networks:
+      core_net:
+        ipv4_address: 192.168.200.100
+        aliases:
+          - upf
+          - upf.localdomain
+  ausf:
+    container_name: open5gs-ausf-noenc
+    image: open5gs
+    environment:
+      - NF=ausf
+    expose:
+      - 7777/tcp
+    depends_on:
+      nrf:
+        condition: service_healthy
+    networks:
+      core_net:
+        ipv4_address: 192.168.200.30
+        aliases:
+          - ausf
+          - ausf.localdomain
+  nrf:
+    container_name: open5gs-nrf-noenc
+    image: open5gs
+    environment:
+      - NF=nrf
+    expose:
+      - 7777/tcp
+    networks:
+      core_net:
+        ipv4_address: 192.168.200.50
+        aliases:
+          - nrf
+          - nrf.localdomain
+  smf:
+    container_name: open5gs-smf-noenc
+    image: open5gs
+    environment:
+      - NF=smf
+    expose:
+      - 7777/tcp
+      - 8805/udp
+    depends_on:
+      nrf:
+        condition: service_healthy
+      amf:
+        condition: service_healthy
+    networks:
+      core_net:
+        ipv4_address: 192.168.200.70
+        aliases:
+          - smf
+          - smf.localdomain
+
+  udm:
+    container_name: open5gs-udm-noenc
+    image: open5gs
+    environment:
+      - NF=udm
+    expose:
+      - 7777/tcp
+    depends_on:
+      nrf:
+        condition: service_healthy
+    networks:
+      core_net:
+        ipv4_address: 192.168.200.80
+        aliases:
+          - udm
+          - udm.localdomain
+  udr:
+    container_name: open5gs-udr-noenc
+    image: open5gs
+    environment:
+      - NF=udr
+    expose:
+      - 7777/tcp
+    depends_on:
+      nrf:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    networks:
+      core_net:
+        ipv4_address: 192.168.200.90
+        aliases:
+          - udr
+          - udr.localdomain
+  pcf:
+    container_name: open5gs-pcf-noenc
+    image: open5gs
+    environment:
+      - NF=pcf
+    expose:
+      - 7777/tcp
+    depends_on:
+      nrf:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    networks:
+      core_net:
+        ipv4_address: 192.168.200.60
+        aliases:
+          - pcf
+          - pcf.localdomain
+  bsf:
+    container_name: open5gs-bsf-noenc
+    image: open5gs
+    environment:
+      - NF=bsf
+    expose:
+      - 7777/tcp
+    depends_on:
+      nrf:
+        condition: service_healthy
+    networks:
+      core_net:
+        ipv4_address: 192.168.200.40
+        aliases:
+          - bsf
+          - bsf.localdomain
+  #OAI
+  oai-gnb:
+    image: oaisoftwarealliance/oai-gnb-custom-noenc:v2.3.0
+    container_name: rfsim5g-oai-gnb-noenc
+    cap_add:
+        - SYS_NICE
+    cap_drop:
+        - ALL
+    environment:
+        USE_ADDITIONAL_OPTIONS: --rfsim --log_config.global_log_options level,nocolor,time
+        ASAN_OPTIONS: detect_leaks=0
+    depends_on:
+      amf:
+        condition: service_healthy
+      ausf:
+        condition: service_healthy
+      bsf:
+        condition: service_healthy
+      nrf:
+        condition: service_healthy
+      pcf:
+        condition: service_healthy
+      smf:
+        condition: service_healthy
+      udm:
+        condition: service_healthy
+      udr:
+        condition: service_healthy
+      upf:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    networks:
+      core_net:
+        ipv4_address: 192.168.200.200
+      ue_net:
+        ipv4_address: 192.168.78.2
+    volumes:
+        - ./OpenAirInterface-Docker/configs/gnb.sa.band78.106prb.rfsim.conf:/opt/oai-gnb/etc/gnb.conf
+    healthcheck:
+        test: /bin/bash -c "pgrep nr-softmodem"
+        start_period: 10s
+        start_interval: 500ms
+        interval: 10s
+        timeout: 5s
+        retries: 5
+
+  oai-nr-ue:
+    image: oaisoftwarealliance/oai-nr-ue:v2.3.0
+    container_name: rfsim5g-oai-nr-ue-noenc
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_ADMIN  # for interface bringup
+      - NET_RAW    # for ping
+    environment:
+      NUMBER_OF_PINGS: ${NUMBER_OF_PINGS}
+      PING_PAYLOAD_SIZE: ${PING_PAYLOAD_SIZE}
+      PING_DEST: ${PING_DEST}
+      USE_ADDITIONAL_OPTIONS: --rfsim --log_config.global_log_options level,nocolor,time
+                              -r 106 --numerology 1 -C 3619200000
+                              --uicc0.imsi 999700000000001
+                              --rfsimulator.serveraddr 192.168.78.2
+    depends_on:
+      oai-gnb:
+        condition: service_healthy
+    networks:
+      ue_net:
+        ipv4_address: 192.168.78.5
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    volumes:
+      - ./OpenAirInterface-Docker/configs/nrue.uicc.conf:/opt/oai-nr-ue/etc/nr-ue.conf
+      - "../../../experiments/F1U latency (ping)/experiment-data:/data/latency" #Points to where data for ping tests will be saved (might require changes)
+      - "../../../experiments/F1U throughput (iperf)/experiment-data:/data/throughput" #Points to where data for ping tests will be saved (might require changes)
+    healthcheck:
+      test: /bin/bash -c "pgrep nr-uesoftmodem"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+        
+networks:
+  #Open5GS
+  core_net: #Zwischen GNB und 5GCore
+    driver: bridge
+    name: core_net
+    driver_opts:
+      com.docker.network.bridge.name: "core_net"
+    ipam:
+      config:
+        - subnet: 192.168.200.0/24
+  ue_net:
+      driver: bridge
+      name: rfsim5g-oai-ue-net
+      ipam:
+        config:
+          - subnet: 192.168.78.0/28
+      driver_opts:
+        com.docker.network.bridge.name: "rfsim5g-ue"
+

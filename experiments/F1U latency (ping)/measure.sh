@@ -1,0 +1,109 @@
+#!/bin/bash
+
+set -e
+
+# change parameters here
+SETUP=${SETUP:-"ipsec"}
+ITERATIONS=${ITERATIONS:-10} # 10
+NUMBER_OF_PINGS=${NUMBER_OF_PINGS:-2000} # 2000
+PING_PAYLOAD_SIZE=${PING_PAYLOAD_SIZE:-64} # 64 or 1024
+PING_DEST=${PING_DEST:-192.168.200.1}
+
+IPSEC_AUTH_METHOD=${IPSEC_AUTH_METHOD:-"pubkey"}
+IPSEC_IKE_CIPHER_SUITE=${IPSEC_IKE_CIPHER_SUITE:-"aes128gcm16-prfsha256-ecp256"} #aes128gcm16-prfsha256-ecp256,
+IPSEC_ESP_CIPHER_SUITE=${IPSEC_ESP_CIPHER_SUITE:-"aes128gcm16"} # aes128-sha2_256, aes256-sha2_256, SPECS: aes128gcm16
+IPSEC_START_ACTION=${IPSEC_START_ACTION:-"start"}
+
+DOCKER_COMPOSE_PATH=${DOCKER_COMPOSE_PATH:-"../../setups/setup RAN/IPsec"} #Change this to desired path! e.g. ../../setups/setup N3/IPSec"
+
+# do not change anything below here (unless you want to modify the code)
+
+function docker_compose {
+    local cmd="docker-compose"
+    if ! command -v $cmd > /dev/null 2>&1;
+    then
+        cmd="docker compose"
+    fi
+    (export SETUP; \
+    export IPSEC_AUTH_METHOD; \
+    export IPSEC_IKE_CIPHER_SUITE; \
+    export IPSEC_ESP_CIPHER_SUITE; \
+    export IPSEC_START_ACTION; \
+    export DTLS_CIPHER; \
+    export DTLS_VERSION; \
+    export DTLS_TYPE; \
+    $cmd -f "$DOCKER_COMPOSE_PATH"/docker-compose.yaml "$@")
+}
+
+
+
+# make sure everything is clean
+docker_compose kill || :
+docker_compose down -v || :
+
+mkdir -p ./experiment-data
+mkdir -p results
+mkdir -p results/$PING_PAYLOAD_SIZE
+rm -f ./experiment-data/data.txt
+results_file="results/$PING_PAYLOAD_SIZE/${SETUP}_$(date +"%Y-%m-%d-T%H-%M-%S").txt"
+
+docker rmi -f oaisoftwarealliance/oai-nr-ue:v2.3.0
+docker build --tag oaisoftwarealliance/oai-nr-ue:v2.3.0 "$(dirname "$0")"/ue 
+
+# start pcap
+touch ./experiment-data/data.txt
+chmod a+w ./experiment-data/data.txt
+
+for (( i = 0; i < ITERATIONS; i++ ))
+do
+    echo "ITERATION: $i"
+
+    docker_compose up -d
+
+    until [ "$(docker inspect -f "{{.State.Health.Status}}" rfsim5g-oai-nr-ue-$SETUP)" == "healthy" ]
+    do
+        sleep 0.1
+    done
+
+    docker exec rfsim5g-oai-nr-ue-$SETUP ./measure.sh
+    until [ "$(docker inspect -f "{{.State.Status}}" rfsim5g-oai-nr-ue-$SETUP)" == "exited" ]
+    do
+        sleep 0.1
+    done
+
+    cat ./experiment-data/data.txt >> "$results_file"
+
+    docker_compose kill
+    docker_compose down -v
+done
+
+# stop pcap
+sleep 5
+
+rm -f ./experiment-data/data.txt
+
+python3 "$(dirname "$0")"/extract-measurements.py "$results_file"
+
+# write_vars_to_file file varname1 varname2 ...
+function write_vars_to_file {
+    if [ $# -ge 2 ]; then
+        sed -i "1s/^/\n/" "$1"
+        # write down in reversed order, resulting in the expected order
+        for (( i=$#; i>1; i-- ))
+        do
+            local var_name=${!i}
+            sed -i "1i$var_name = ${!var_name}" "$1"
+        done
+    fi
+}
+
+if [[ "${SETUP}" == "noenc" ]];
+then
+    write_vars_to_file "${results_file}" SETUP ITERATIONS PING_PAYLOAD_SIZE NUMBER_OF_PINGS
+elif [[ "${SETUP}" == "dtls" ]];
+then
+    write_vars_to_file "${results_file}" SETUP ITERATIONS DTLS_CIPHER DTLS_VERSION
+elif [[ "${SETUP}" == "ipsec" ]];
+then
+    write_vars_to_file "${results_file}" SETUP ITERATIONS PING_PAYLOAD_SIZE NUMBER_OF_PINGS IPSEC_AUTH_METHOD IPSEC_IKE_CIPHER_SUITE IPSEC_ESP_CIPHER_SUITE IPSEC_START_ACTION
+fi

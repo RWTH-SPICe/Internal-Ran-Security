@@ -1,0 +1,11 @@
+SETUP = noenc
+ITERATIONS = 5
+PING_PAYLOAD_SIZE = 64
+NUMBER_OF_PINGS = 2000
+
+Results: n=5 mean=74.980 stdev=±2.002 99%conf=±2.306
+77.2
+73.6
+76.3
+72.3
+75.5
