@@ -48,7 +48,7 @@ To get started with this repository, follow these steps:
 If you use this work in your research or project, please cite the following paper:
 
 ```bibtex
-@inproceedings{michaelides2025ransecurity,
+@inproceedings{michaelides2026ransecurity,
   author = {Michaelides, Sotiris and Lapawa, Jakub and Eguiguren, Daniel and Henze, Martin},
   title = {{Evaluation of Security-Induced Latency on 5G RAN Interfaces and User Plane Communication}},
   booktitle = {Proceedings of the 19th ACM Conference on Security and Privacy in Wireless and Mobile Networks (WiSec)},
